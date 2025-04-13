@@ -1,42 +1,44 @@
+# backend/main.py
 from fastapi import FastAPI, WebSocket
-from openai import OpenAI
-import tempfile, aiofiles
+from fastapi.middleware.cors import CORSMiddleware
+import openai
+import asyncio
 
 app = FastAPI()
-openai_client = OpenAI()
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 必要に応じて限定
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+openai_client = openai.AsyncOpenAI()
+
+@app.websocket("/ws/chat")
+async def chat_ws(websocket: WebSocket):
     await websocket.accept()
+    try:
+        while True:
+            # 音声の文字列として受信（シンプル化のため文字で送っている）
+            message = await websocket.receive_text()
+            print("User input:", message)
 
-    # セッションループ
-    buffer = b""
-    while True:
-        data = await websocket.receive_bytes()
-        buffer += data
-
-        # チャンクサイズで切る or 明示的に切るロジック（例: silence区間）
-        if len(buffer) > 16000 * 2 * 3:  # 16kHz, 16bit, mono * 3秒
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                tmp.write(buffer)
-                audio_path = tmp.name
-
-            async with aiofiles.open(audio_path, 'rb') as f:
-                response = openai_client.audio.transcriptions.create(
-                    model="whisper-1", file=await f.read()
-                )
-            text = response.text
-
-            # Chat API に投げる
-            completion = openai_client.chat.completions.create(
+            # OpenAIへstreamingリクエスト送信
+            response = await openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": text}],
+                messages=[{"role": "user", "content": message}],
                 stream=True,
             )
 
-            # ストリーミングでレスポンスをWebSocket経由で返す
-            async for chunk in completion:
-                if chunk.choices[0].delta.content:
-                    await websocket.send_text(chunk.choices[0].delta.content)
+            # トークンごとにフロントに送り返す
+            async for chunk in response:
+                delta = chunk.choices[0].delta.get("content", "")
+                if delta:
+                    await websocket.send_text(delta)
+            await websocket.send_text("[END]")
 
-            buffer = b""  # リセット
+    except Exception as e:
+        print("WebSocket error:", e)
+        await websocket.close()
