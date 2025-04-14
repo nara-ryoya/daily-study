@@ -14,9 +14,9 @@ export default function Home() {
       if (event.data === "[END]") return;
       setMessages((prev) => prev + event.data);
     };
-    return () => {
-      wsRef.current?.close();
-    };
+    // return () => {
+    //   wsRef.current?.close();
+    // };
   }, []);
 
   const startRecording = async () => {
@@ -24,6 +24,9 @@ export default function Home() {
     const recorder = new MediaRecorder(stream);
     let chunks: BlobPart[] = [];
 
+    recorder.onstart = () => {
+      chunks = [];
+    };
     recorder.ondataavailable = (e) => {
       chunks.push(e.data);
     };

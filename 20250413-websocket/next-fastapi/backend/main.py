@@ -34,7 +34,8 @@ async def chat_ws(websocket: WebSocket):
 
             # トークンごとにフロントに送り返す
             async for chunk in response:
-                delta = chunk.choices[0].delta.get("content", "")
+                print("chunk:", chunk)
+                delta = chunk.choices[0].delta.content or ""
                 if delta:
                     await websocket.send_text(delta)
             await websocket.send_text("[END]")
